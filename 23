@@ -1,0 +1,141 @@
+.gradle/
+build/
+run/
+.idea/
+*.iml
+.vscode/
+out/
+bin/
+
+plugins {
+    alias(libs.plugins.fabric.loom)
+}
+
+val archivesBaseName = providers.gradleProperty("archives_base_name").get()
+val mavenGroup = providers.gradleProperty("maven_group").get()
+
+base {
+    archivesName = archivesBaseName
+    version = libs.versions.mod.version.get()
+    group = mavenGroup
+}
+
+configurations.all {
+    // Re-check Meteor's snapshot on every build instead of once a day.
+    resolutionStrategy.cacheChangingModulesFor(0, "seconds")
+}
+
+repositories {
+    maven {
+        name = "meteor-maven"
+        url = uri("https://maven.meteordev.org/releases")
+    }
+    maven {
+        name = "meteor-maven-snapshots"
+        url = uri("https://maven.meteordev.org/snapshots")
+    }
+}
+
+dependencies {
+    // Minecraft + Fabric
+    minecraft(libs.minecraft)
+    mappings(variantOf(libs.yarn) { classifier("v2") })
+    modImplementation(libs.fabric.loader)
+
+    // Meteor Client (brings Orbit, Starscript, etc. along transitively)
+    modImplementation(libs.meteor.client)
+}
+
+tasks {
+    processResources {
+        val propertyMap = mapOf("version" to project.version)
+
+        inputs.properties(propertyMap)
+        filesMatching("fabric.mod.json") {
+            expand(propertyMap)
+        }
+    }
+
+    withType<JavaCompile>().configureEach {
+        options.encoding = "UTF-8"
+        options.release = libs.versions.jdk.get().toInt()
+        options.compilerArgs.addAll(listOf("-Xlint:deprecation", "-Xlint:unchecked"))
+    }
+}
+
+org.gradle.jvmargs=-Xmx2G
+org.gradle.parallel=true
+org.gradle.caching=true
+
+maven_group=com.staffdetector
+archives_base_name=staff-detector
+
+# Staff Detector
+
+A [Meteor Client](https://meteorclient.com) addon for **Minecraft 1.21.11** that warns you when server staff are online or nearby, with a HUD panel that lists them.
+
+## What it does
+
+**Staff Detector module** (category *Staff*)
+
+A player is flagged as staff if:
+
+- their username is in `staff-names`,
+- their tab-list rank contains a word from `rank-keywords` (matches whole words, so `[Admin]` is caught but `AdminFan` is not), or
+- `detect-spectators` is on and they are in spectator mode.
+
+It reads the rank from the tab-list display name, or from the scoreboard team prefix/suffix when the server uses teams for ranks.
+
+Alerts (all optional): chat warning when staff join, note when they leave, a summary of who is online right after you join, a warning when a staff member comes within `nearby-range` blocks, and a sound.
+
+**Staff List HUD element**
+
+Add it from the HUD editor (group *Staff Detector*). It shows the staff the module currently sees and, optionally, why each was flagged. It shows sample rows while you are in the editor.
+
+## Build
+
+You need JDK 21.
+
+```
+./gradlew build
+```
+
+The jar is written to `build/libs/`. Put it in your `mods` folder next to Meteor Client for 1.21.11 and Fabric API/Loader.
+
+This project ships `gradle/wrapper/gradle-wrapper.properties` but not the wrapper jar or the `gradlew` scripts. Either:
+
+- open the folder in IntelliJ IDEA, which downloads Gradle from the properties file, or
+- copy `gradlew`, `gradlew.bat` and `gradle/wrapper/gradle-wrapper.jar` from the [official addon template](https://github.com/MeteorDevelopment/meteor-addon-template), or
+- run `gradle wrapper --gradle-version 9.2.0` once if you have Gradle installed.
+
+## If the build fails
+
+This was written against the Meteor addon template pattern for 1.21.11 but has not been compiled against the real Meteor jar. The version pins live in `gradle/libs.versions.toml`. The usual suspects:
+
+- **Gradle or Loom version errors**: the wrapper is set to Gradle 9.2.0. If Loom asks for a newer Gradle, bump `distributionUrl`.
+- **Yarn or Meteor snapshot won't resolve or remap**: try a different `yarn-mappings` build (`1.21.11+build.3`, `build.4`), and compare `libs.versions.toml` with the one in Meteor Client's own repo.
+- **A method or field in `StaffListHud` is missing** (`x`, `y`, `setSize`, `isInEditor`): compare against the `HudExample` class in the official template.
+- **`entry.getProfile().name()` is missing**: it lives in one method, `nameOf(...)` in `StaffDetector`. Use `getName()` there if your mappings differ.
+
+## Layout
+
+```
+src/main/java/com/staffdetector/addon/
+  StaffDetectorAddon.java        entrypoint, category, HUD group
+  modules/StaffDetector.java     the detection module
+  hud/StaffListHud.java          the HUD panel
+src/main/resources/fabric.mod.json
+```
+
+pluginManagement {
+    repositories {
+        maven {
+            name = "Fabric"
+            url = uri("https://maven.fabricmc.net/")
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+
+rootProject.name = "staff-detector"
